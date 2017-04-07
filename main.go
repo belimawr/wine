@@ -1,64 +1,121 @@
 package main
 
 import (
-	"fmt"
-	"strings"
+	"database/sql"
+	"log"
 	"sync"
 
+	"fmt"
+
+	"os"
+
 	"github.com/PuerkitoBio/goquery"
+	"github.com/belimawr/wine/models"
+	"github.com/belimawr/wine/parser"
+	"github.com/belimawr/wine/store"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-type Wine struct {
-	Name        string
-	Price       string
-	Grape       string
-	Description string
+func wineGetter(i int, in <-chan string, out chan<- models.Wine) {
+	for {
+		url, more := <-in
+
+		if !more {
+			break
+		}
+
+		doc, err := goquery.NewDocument("http://wine.com.br/" + url)
+
+		if err != nil {
+			log.Printf("Error reading Wine page: %q", err)
+		}
+
+		out <- parser.WinePage(doc.Selection)
+
+		fmt.Fprintf(os.Stderr, " %02d ", i)
+	}
+	log.Print("Worker Done!")
+
 }
 
-func wineGetter(out chan Wine, wg *sync.WaitGroup, url string) {
-	doc, err := goquery.NewDocument("http://wine.com.br/" + url)
+func main() {
+	db, err := sql.Open("sqlite3", "./sqlite3.db")
 
 	if err != nil {
 		panic(err)
 	}
 
-	name := doc.Find("#boxProduto > h1").Text()
-	price := doc.Find("#boxProduto div.boxPreco > p").Text()
-	grape := doc.Find("#paginaProduto > div.boxApresentacaoProduto > div.dadosAvancados > div > ul:nth-child(4) > li:nth-child(1) > span.valor").Text()
-	description := doc.Find("#boxProduto div.comentarioSommelier > p").Text()
+	db.SetMaxOpenConns(1)
 
-	out <- Wine{
-		Name:        strings.Trim(name, "\n\t "),
-		Price:       strings.Trim(price, "\n\t "),
-		Grape:       strings.Trim(grape, "\n\t "),
-		Description: strings.Trim(description, "\n\t "),
-	}
+	createWineTable := `CREATE TABLE wine(id INTEGER NOT NULL PRIMARY KEY,
+                                         name TEXT,
+                                         price TEXT,
+                                         grape TEXT,
+                                         description TEXT,
+                                         crawled_at TIMESTAMP);`
 
-	wg.Done()
-}
-
-func main() {
-	doc, err := goquery.NewDocument("https://www.wine.com.br/browse.ep?cID=100851&filters=&pn=1&exibirEsgotados=false&listagem=horizontal&sorter=price-asc")
+	_, err = db.Exec(createWineTable)
 
 	if err != nil {
-		panic(err.Error())
+		log.Print(err)
 	}
 
-	winesChan := make(chan Wine, 100)
+	store := store.NewSQLiteStore(db)
+
+	urlPattern := "https://www.wine.com.br/browse.ep?cID=100851&filters=&pn=%d&exibirEsgotados=false&listagem=horizontal&sorter=price-asc"
+
+	winesChan := make(chan models.Wine, 100)
+	urlChan := make(chan string, 100)
 
 	var wg sync.WaitGroup
 
-	doc.Find("div.barraTitulo > h2 > a").Each(func(i int, s *goquery.Selection) {
-		wg.Add(1)
-		if href, ok := s.Attr("href"); ok {
-			go wineGetter(winesChan, &wg, href)
-		}
-	})
+	for i := 0; i < 20; i++ {
+		go wineGetter(i, urlChan, winesChan)
 
+		go func(winesChan <-chan models.Wine, wg *sync.WaitGroup) {
+			for {
+				w, more := <-winesChan
+				if !more {
+					break
+				}
+				store.PutWine(w)
+				wg.Done()
+			}
+			log.Println("Consumer done")
+		}(winesChan, &wg)
+	}
+
+	i := 0
+	wgc := 0
+	for {
+		i++
+		doc, err := goquery.NewDocument(fmt.Sprintf(urlPattern, i))
+
+		if err != nil {
+			fmt.Print(err.Error())
+		}
+		log.Printf("Got page: %d", i)
+
+		urls := parser.ParseListing(doc.Find("body"))
+
+		fmt.Printf("\nPage: %d, urls: %d\n\n", i, len(urls))
+
+		if len(urls) == 0 {
+			break
+		}
+
+		for _, url := range urls {
+			wg.Add(1)
+			urlChan <- url
+			wgc++
+			fmt.Print(".")
+		}
+	}
+
+	fmt.Printf("\n\nwgc: %d\n\n", wgc)
 	wg.Wait()
+
+	close(urlChan)
 	close(winesChan)
 
-	for w := range winesChan {
-		fmt.Println(w)
-	}
 }
