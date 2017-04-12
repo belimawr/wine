@@ -26,11 +26,11 @@ type sqlite struct {
 }
 
 func (s sqlite) PutWine(w models.Wine) error {
-	query := `INSERT INTO wine (name, price, grape, description, crawled_at) VALUES (?, ?, ?, ?, ?)`
+	query := `INSERT INTO wine (name, price, deal, grape, description, pairing, crawled_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 	now := time.Now()
 
-	_, err := s.db.Exec(query, w.Name, w.Price, w.Grape, w.Description, now)
+	_, err := s.db.Exec(query, w.Name, w.Price, w.Deal, w.Grape, w.Description, w.Pairing, now, w.Error)
 
 	if err != nil {
 		log.Printf("Could not insert Wine into database, error: %q", err)
