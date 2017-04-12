@@ -7,8 +7,6 @@ import (
 
 	"fmt"
 
-	"os"
-
 	"github.com/PuerkitoBio/goquery"
 	"github.com/belimawr/wine/models"
 	"github.com/belimawr/wine/parser"
@@ -32,7 +30,7 @@ func wineGetter(i int, in <-chan string, out chan<- models.Wine) {
 
 		out <- parser.WinePage(doc.Selection)
 
-		fmt.Fprintf(os.Stderr, " %02d ", i)
+		fmt.Print("*")
 	}
 	log.Print("Worker Done!")
 
