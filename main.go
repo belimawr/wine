@@ -49,10 +49,13 @@ func main() {
 
 	createWineTable := `CREATE TABLE wine(id INTEGER NOT NULL PRIMARY KEY,
                                          name TEXT,
-                                         price TEXT,
+                                         price REAL,
+                                         deal REAL,
                                          grape TEXT,
                                          description TEXT,
-                                         crawled_at TIMESTAMP);`
+                                         pairing TEXT,
+                                         crawled_at TIMESTAMP,
+                                         error TEXT);`
 
 	_, err = db.Exec(createWineTable)
 
