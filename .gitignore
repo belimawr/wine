@@ -1,0 +1,6 @@
+.idea/
+.vscode/
+main
+sqlite3.db
+vendor/
+wine
